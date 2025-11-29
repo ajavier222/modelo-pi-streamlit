@@ -15,15 +15,16 @@ model = load_model()
 # =========================================
 # 2. Configuración general
 # =========================================
-st.set_page_config(page_title="Predicción Modelo PI", layout="wide")
-st.title("📊 Predicción Masiva — Modelo PI")
+st.set_page_config(page_title="Despliegue del Modelo PI", layout="wide")
+
+st.title("🚀 Despliegue del Modelo PI")
 st.write(
-    "Sube un archivo CSV/XLSX con los datos, "
-    "y el modelo preentrenado generará predicciones automáticas."
+    "Sube un archivo CSV/XLSX con los datos de interés y el modelo entrenado "
+    "aplicará automáticamente sus predicciones."
 )
 
 st.markdown(
-    "> ⚠️ **Importante**: el archivo debe tener las **mismas columnas** "
+    "> ⚠️ **Importante**: el archivo debe contener las **mismas columnas** "
     "que se usaron para entrenar el modelo."
 )
 
@@ -40,14 +41,14 @@ if file is not None:
     else:
         df = pd.read_excel(file)
 
-    st.subheader("📄 Vista previa del archivo")
+    st.subheader("📄 Vista previa del archivo input")
     st.dataframe(df.head())
     st.write(f"Filas: **{df.shape[0]}**, Columnas: **{df.shape[1]}**")
 
     # =========================================
     # 4. Aplicar modelo
     # =========================================
-    if st.button("Aplicar modelo"):
+    if st.button("Ejecutar despliegue del modelo"):
         
         # Si el modelo guarda el listado de features, validamos
         feature_cols = getattr(model, "feature_names_in_", None)
@@ -56,7 +57,7 @@ if file is not None:
             missing = [c for c in feature_cols if c not in df.columns]
             if missing:
                 st.error(
-                    "❌ El archivo no contiene todas las columnas que el modelo espera.\n\n"
+                    "❌ El archivo no contiene todas las columnas necesarias.\n\n"
                     "Faltan estas columnas:\n- " + "\n- ".join(missing)
                 )
                 st.stop()
@@ -73,22 +74,22 @@ if file is not None:
         else:
             probas = None
 
-        # Resultado final
+        # Construcción del resultado final
         result = df.copy()
         result["prediccion"] = preds
 
         if probas is not None:
             result["probabilidad_clase_1"] = probas
 
-        st.success("✅ Predicciones generadas correctamente.")
+        st.success("✅ Despliegue ejecutado y resultados generados.")
         
-        st.subheader("📊 Resultados")
+        st.subheader("📊 Resultados del despliegue")
         st.dataframe(result.head())
 
         # =========================================
         # 5. Métricas rápidas
         # =========================================
-        st.subheader("🔢 Resumen de predicciones")
+        st.subheader("📌 Resumen del despliegue")
 
         total = len(result)
         n_pos = (result["prediccion"] == 1).sum()
@@ -97,9 +98,9 @@ if file is not None:
         pct_neg = n_neg / total * 100 if total > 0 else 0
 
         col1, col2, col3 = st.columns(3)
-        col1.metric("Total registros", total)
-        col2.metric("Predicciones clase 1", n_pos, f"{pct_pos:.1f}%")
-        col3.metric("Predicciones clase 0", n_neg, f"{pct_neg:.1f}%")
+        col1.metric("Total registros procesados", total)
+        col2.metric("Casos clasificados como 1", n_pos, f"{pct_pos:.1f}%")
+        col3.metric("Casos clasificados como 0", n_neg, f"{pct_neg:.1f}%")
 
         # =========================================
         # 6. Distribución de clases (gráfico)
@@ -111,7 +112,7 @@ if file is not None:
         # 7. Análisis por segmento (si existe)
         # =========================================
         if "segmento" in result.columns:
-            st.subheader("🏷️ Porcentaje de clase 1 por segmento")
+            st.subheader("🏷️ Distribución por segmento — Clase 1 (%)")
             seg_stats = (
                 result.groupby("segmento")["prediccion"]
                 .mean()
@@ -132,8 +133,8 @@ if file is not None:
         # =========================================
         csv_bytes = result.to_csv(index=False).encode("utf-8")
         st.download_button(
-            "⬇️ Descargar CSV con predicciones",
+            "⬇️ Descargar archivo con resultados",
             data=csv_bytes,
-            file_name="predicciones_modelo_pi.csv",
+            file_name="resultado_despliegue_modelo.csv",
             mime="text/csv",
         )
