@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import joblib
+from io import BytesIO
 
 # =========================================
 # 1. Cargar modelo
@@ -13,100 +14,73 @@ def load_model():
 model = load_model()
 
 # =========================================
-# 2. Función robusta para leer archivos
+# Función robusta para leer archivos
 # =========================================
 def load_input_file(uploaded_file) -> pd.DataFrame:
-    """
-    Lee un archivo subido (CSV o XLSX) de forma robusta:
-    - Detecta la extensión.
-    - Para CSV, prueba varios encodings y separadores.
-    """
-
     filename = uploaded_file.name.lower()
 
     if filename.endswith(".xlsx") or filename.endswith(".xls"):
-        # Archivo Excel
         return pd.read_excel(uploaded_file)
 
-    # Asumimos CSV si no es Excel
-    # Intento 1: CSV estándar utf-8 y coma
-    try:
-        uploaded_file.seek(0)
-        return pd.read_csv(uploaded_file)
-    except Exception:
-        pass
+    # CSV: intentos con distintos encodings/separadores
+    for enc in ["utf-8", "latin-1"]:
+        for sep in [",", ";"]:
+            try:
+                uploaded_file.seek(0)
+                return pd.read_csv(uploaded_file, encoding=enc, sep=sep)
+            except Exception:
+                pass
 
-    # Intento 2: CSV encoding latino (muy común en archivos de Windows)
-    try:
-        uploaded_file.seek(0)
-        return pd.read_csv(uploaded_file, encoding="latin-1")
-    except Exception:
-        pass
+    st.error("❌ No se pudo leer el archivo. Prueba guardarlo como Excel (.xlsx).")
+    st.stop()
 
-    # Intento 3: CSV con ; como separador (típico de CSV en español)
-    try:
-        uploaded_file.seek(0)
-        return pd.read_csv(uploaded_file, sep=";", encoding="latin-1")
-    except Exception as e:
-        st.error(
-            "❌ No se pudo leer el archivo.\n\n"
-            "Prueba guardarlo nuevamente como CSV UTF-8 desde Excel o subir un XLSX.\n\n"
-            f"Detalle técnico: {e}"
-        )
-        st.stop()
 
 # =========================================
-# 3. Configuración general
+# Configuración general de la app
 # =========================================
-st.set_page_config(page_title="Despliegue del Modelo PI", layout="wide")
+st.set_page_config(page_title="Ejecución del Modelo PI", layout="wide")
 
-st.title("🚀 Despliegue del Modelo PI")
+st.title("🤖 Ejecución del Modelo PI")
 st.write(
-    "Sube un archivo CSV/XLSX con los datos de interés y el modelo entrenado "
-    "aplicará automáticamente sus predicciones."
+    "Sube un archivo CSV/XLSX y el modelo preentrenado generará las predicciones correspondientes."
 )
 
 st.markdown(
-    "> ⚠️ **Importante**: el archivo debe contener las **mismas columnas** "
-    "que se usaron para entrenar el modelo."
+    "> ⚠️ **Importante**: el archivo debe contener las mismas columnas usadas en el entrenamiento del modelo."
 )
 
 # =========================================
-# 4. Cargar archivo
+# 4. Cargar archivo usuario
 # =========================================
 file = st.file_uploader("Sube un archivo CSV o Excel", type=["csv", "xlsx"])
 
 if file is not None:
-
-    # Usamos la función robusta
     df = load_input_file(file)
 
-    st.subheader("📄 Vista previa del archivo input")
+    st.subheader("📄 Vista previa del archivo")
     st.dataframe(df.head())
     st.write(f"Filas: **{df.shape[0]}**, Columnas: **{df.shape[1]}**")
 
     # =========================================
-    # 5. Aplicar modelo
+    # 5. Ejecutar modelo
     # =========================================
-    if st.button("Ejecutar despliegue del modelo"):
+    if st.button("Ejecutar modelo"):
 
-        # Si el modelo guarda el listado de features, validamos
+        # Validar columnas esperadas si existen en el modelo
         feature_cols = getattr(model, "feature_names_in_", None)
 
         if feature_cols is not None:
             missing = [c for c in feature_cols if c not in df.columns]
             if missing:
                 st.error(
-                    "❌ El archivo no contiene todas las columnas necesarias.\n\n"
-                    "Faltan estas columnas:\n- " + "\n- ".join(missing)
+                    "❌ El archivo no contiene todas las columnas necesarias:\n\n"
+                    + "\n".join(f"- {m}" for m in missing)
                 )
                 st.stop()
-
             X = df[list(feature_cols)].copy()
         else:
             X = df.copy()
 
-        # Predicciones
         preds = model.predict(X)
 
         if hasattr(model, "predict_proba"):
@@ -114,36 +88,37 @@ if file is not None:
         else:
             probas = None
 
-        # Construcción del resultado final
+        # Resultado final
         result = df.copy()
         result["prediccion"] = preds
 
         if probas is not None:
             result["probabilidad_clase_1"] = probas
 
-        st.success("✅ Despliegue ejecutado y resultados generados.")
-        
-        st.subheader("📊 Resultados del despliegue")
+        st.success("✅ Modelo ejecutado correctamente.")
+
+        st.subheader("📊 Resultados de la predicción")
         st.dataframe(result.head())
 
         # =========================================
         # 6. Métricas rápidas
         # =========================================
-        st.subheader("📌 Resumen del despliegue")
+        st.subheader("📌 Resumen de los resultados")
 
         total = len(result)
         n_pos = (result["prediccion"] == 1).sum()
         n_neg = (result["prediccion"] == 0).sum()
-        pct_pos = n_pos / total * 100 if total > 0 else 0
-        pct_neg = n_neg / total * 100 if total > 0 else 0
+
+        pct_pos = (n_pos / total * 100) if total > 0 else 0
+        pct_neg = (n_neg / total * 100) if total > 0 else 0
 
         col1, col2, col3 = st.columns(3)
         col1.metric("Total registros procesados", total)
-        col2.metric("Casos clasificados como 1", n_pos, f"{pct_pos:.1f}%")
-        col3.metric("Casos clasificados como 0", n_neg, f"{pct_neg:.1f}%")
+        col2.metric("Casos predicción = 1", n_pos, f"{pct_pos:.1f}%")
+        col3.metric("Casos predicción = 0", n_neg, f"{pct_neg:.1f}%")
 
         # =========================================
-        # 7. Distribución de clases (gráfico)
+        # 7. Distribución general
         # =========================================
         st.subheader("📉 Distribución de clases")
         st.bar_chart(result["prediccion"].value_counts())
@@ -161,20 +136,25 @@ if file is not None:
             st.bar_chart(seg_stats)
 
         # =========================================
-        # 9. Top casos más probables
+        # 9. Top 20 predicciones más acertadas
         # =========================================
         if "probabilidad_clase_1" in result.columns:
-            st.subheader("🔥 Top 20 casos con mayor probabilidad")
-            top_20 = result.sort_values("probabilidad_clase_1", ascending=False).head(20)
-            st.dataframe(top_20)
+            st.subheader("🔥 Top 20 de los casos con una predicción más acertada")
+            top20 = result.sort_values("probabilidad_clase_1", ascending=False).head(20)
+            st.dataframe(top20)
 
         # =========================================
-        # 10. Descargar CSV final
+        # 10. Descargar resultados SIEMPRE como Excel
         # =========================================
-        csv_bytes = result.to_csv(index=False).encode("utf-8")
+        st.subheader("📥 Descargar resultados")
+
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            result.to_excel(writer, index=False, sheet_name="Resultados")
+
         st.download_button(
-            "⬇️ Descargar archivo con resultados",
-            data=csv_bytes,
-            file_name="resultado_despliegue_modelo.csv",
-            mime="text/csv",
+            label="⬇️ Descargar archivo en Excel (.xlsx)",
+            data=output.getvalue(),
+            file_name="resultados_modelo.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
