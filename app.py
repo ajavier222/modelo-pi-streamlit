@@ -14,29 +14,38 @@ def load_model():
 model = load_model()
 
 # =========================================
-# Función robusta para leer archivos
+# 2. Función robusta para leer archivos
 # =========================================
 def load_input_file(uploaded_file) -> pd.DataFrame:
+    """
+    Lee un archivo subido (CSV o XLSX) de forma robusta:
+    - Detecta extensión.
+    - Para CSV, prueba distintos encodings y separadores.
+    """
     filename = uploaded_file.name.lower()
 
+    # Excel
     if filename.endswith(".xlsx") or filename.endswith(".xls"):
         return pd.read_excel(uploaded_file)
 
-    # CSV: intentos con distintos encodings/separadores
+    # CSV: probamos varias combinaciones
     for enc in ["utf-8", "latin-1"]:
         for sep in [",", ";"]:
             try:
                 uploaded_file.seek(0)
                 return pd.read_csv(uploaded_file, encoding=enc, sep=sep)
             except Exception:
-                pass
+                continue
 
-    st.error("❌ No se pudo leer el archivo. Prueba guardarlo como Excel (.xlsx).")
+    st.error(
+        "❌ No se pudo leer el archivo.\n\n"
+        "Prueba guardarlo nuevamente como CSV UTF-8 o como Excel (.xlsx) e intenta de nuevo."
+    )
     st.stop()
 
 
 # =========================================
-# Configuración general de la app
+# 3. Configuración general de la app
 # =========================================
 st.set_page_config(page_title="Ejecución del Modelo PI", layout="wide")
 
@@ -46,11 +55,12 @@ st.write(
 )
 
 st.markdown(
-    "> ⚠️ **Importante**: el archivo debe contener las mismas columnas usadas en el entrenamiento del modelo."
+    "> ⚠️ **Importante**: el archivo debe contener las mismas columnas usadas "
+    "para entrenar el modelo."
 )
 
 # =========================================
-# 4. Cargar archivo usuario
+# 4. Cargar archivo de usuario
 # =========================================
 file = st.file_uploader("Sube un archivo CSV o Excel", type=["csv", "xlsx"])
 
@@ -66,7 +76,7 @@ if file is not None:
     # =========================================
     if st.button("Ejecutar modelo"):
 
-        # Validar columnas esperadas si existen en el modelo
+        # Validar columnas esperadas si el modelo las guarda
         feature_cols = getattr(model, "feature_names_in_", None)
 
         if feature_cols is not None:
@@ -77,10 +87,12 @@ if file is not None:
                     + "\n".join(f"- {m}" for m in missing)
                 )
                 st.stop()
+
             X = df[list(feature_cols)].copy()
         else:
             X = df.copy()
 
+        # Predicciones
         preds = model.predict(X)
 
         if hasattr(model, "predict_proba"):
@@ -88,7 +100,7 @@ if file is not None:
         else:
             probas = None
 
-        # Resultado final
+        # DataFrame de resultados
         result = df.copy()
         result["prediccion"] = preds
 
@@ -97,37 +109,46 @@ if file is not None:
 
         st.success("✅ Modelo ejecutado correctamente.")
 
+        # =========================================
+        # 6. Resultados de la predicción
+        # =========================================
         st.subheader("📊 Resultados de la predicción")
         st.dataframe(result.head())
 
         # =========================================
-        # 6. Métricas rápidas
+        # 7. Resumen de los resultados
         # =========================================
         st.subheader("📌 Resumen de los resultados")
 
         total = len(result)
-        n_pos = (result["prediccion"] == 1).sum()
-        n_neg = (result["prediccion"] == 0).sum()
+        n_fraude = (result["prediccion"] == 1).sum()
+        n_normal = (result["prediccion"] == 0).sum()
 
-        pct_pos = (n_pos / total * 100) if total > 0 else 0
-        pct_neg = (n_neg / total * 100) if total > 0 else 0
+        pct_fraude = (n_fraude / total * 100) if total > 0 else 0
+        pct_normal = (n_normal / total * 100) if total > 0 else 0
 
         col1, col2, col3 = st.columns(3)
         col1.metric("Total registros procesados", total)
-        col2.metric("Casos predicción = 1", n_pos, f"{pct_pos:.1f}%")
-        col3.metric("Casos predicción = 0", n_neg, f"{pct_neg:.1f}%")
+        col2.metric("Casos en los que se detectó fraude", n_fraude, f"{pct_fraude:.1f}%")
+        col3.metric("Casos que presentan normalidad", n_normal, f"{pct_normal:.1f}%")
 
         # =========================================
-        # 7. Distribución general
+        # 8. Distribución de clases (gráfico)
         # =========================================
         st.subheader("📉 Distribución de clases")
-        st.bar_chart(result["prediccion"].value_counts())
+
+        dist = (
+            result["prediccion"]
+            .replace({0: "Presentan normalidad", 1: "Se detectó fraude"})
+            .value_counts()
+        )
+        st.bar_chart(dist)
 
         # =========================================
-        # 8. Análisis por segmento (si existe)
+        # 9. Análisis por segmento (si existe)
         # =========================================
         if "segmento" in result.columns:
-            st.subheader("🏷️ Distribución por segmento — Clase 1 (%)")
+            st.subheader("🏷️ Distribución por segmento — Clase 1 (fraude) (%)")
             seg_stats = (
                 result.groupby("segmento")["prediccion"]
                 .mean()
@@ -136,7 +157,7 @@ if file is not None:
             st.bar_chart(seg_stats)
 
         # =========================================
-        # 9. Top 20 predicciones más acertadas
+        # 10. Top 20 de los casos con una predicción más acertada
         # =========================================
         if "probabilidad_clase_1" in result.columns:
             st.subheader("🔥 Top 20 de los casos con una predicción más acertada")
@@ -144,12 +165,12 @@ if file is not None:
             st.dataframe(top20)
 
         # =========================================
-        # 10. Descargar resultados SIEMPRE como Excel
+        # 11. Descargar resultados SIEMPRE en Excel (.xlsx)
         # =========================================
         st.subheader("📥 Descargar resultados")
 
         output = BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
             result.to_excel(writer, index=False, sheet_name="Resultados")
 
         st.download_button(
