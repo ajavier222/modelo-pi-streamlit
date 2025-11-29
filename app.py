@@ -1,109 +1,139 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import joblib
 
-
+# =========================================
+# 1. Cargar modelo
+# =========================================
 @st.cache_resource
 def load_model():
-    """
-    Load the trained model from disk. The model file must be present in the
-    same directory as this script.
-    """
-    return joblib.load("best_model_v1.joblib")
+    model = joblib.load("best_model_v1.joblib")
+    return model
 
+model = load_model()
 
-def preprocess_input(inputs: dict) -> pd.DataFrame:
-    """
-    Preprocess the raw input dictionary into a pandas DataFrame that matches
-    the feature set expected by the trained model. This function needs to
-    replicate the same feature engineering and preprocessing steps that were
-    applied in the training notebook.
+# =========================================
+# 2. Configuración general
+# =========================================
+st.set_page_config(page_title="Predicción Modelo PI", layout="wide")
+st.title("📊 Predicción Masiva — Modelo PI")
+st.write(
+    "Sube un archivo CSV/XLSX con los datos, "
+    "y el modelo preentrenado generará predicciones automáticas."
+)
 
-    Parameters
-    ----------
-    inputs : dict
-        Raw user inputs keyed by feature name.
+st.markdown(
+    "> ⚠️ **Importante**: el archivo debe tener las **mismas columnas** "
+    "que se usaron para entrenar el modelo."
+)
 
-    Returns
-    -------
-    pd.DataFrame
-        A DataFrame with a single row, containing the processed features.
+# =========================================
+# 3. Cargar archivo
+# =========================================
+file = st.file_uploader("Sube un archivo CSV o Excel", type=["csv", "xlsx"])
 
-    Notes
-    -----
-    This example includes only placeholder transformations. You should
-    implement the actual preprocessing logic based on your notebook. For
-    example, performing one-hot encoding, calculating ranges, or mapping
-    categorical values exactly as done during training.
-    """
-    # Construct DataFrame from inputs
-    df = pd.DataFrame([inputs])
+if file is not None:
 
-    # TODO: Replace with real preprocessing steps
-    # For now, just return the DataFrame as is
-    return df
+    # Detectar si es CSV o Excel
+    if file.name.lower().endswith(".csv"):
+        df = pd.read_csv(file)
+    else:
+        df = pd.read_excel(file)
 
+    st.subheader("📄 Vista previa del archivo")
+    st.dataframe(df.head())
+    st.write(f"Filas: **{df.shape[0]}**, Columnas: **{df.shape[1]}**")
 
-def main():
-    st.set_page_config(page_title="Predicción Modelo PI", layout="wide")
-    st.title("📊 Predicción con el Modelo PI")
-    st.write(
-        "Este aplicativo carga un modelo preentrenado para predecir el posible "
-        "evento de caída (clase 1) o no (clase 0)."
-    )
+    # =========================================
+    # 4. Aplicar modelo
+    # =========================================
+    if st.button("Aplicar modelo"):
+        
+        # Si el modelo guarda el listado de features, validamos
+        feature_cols = getattr(model, "feature_names_in_", None)
 
-    model = load_model()
+        if feature_cols is not None:
+            missing = [c for c in feature_cols if c not in df.columns]
+            if missing:
+                st.error(
+                    "❌ El archivo no contiene todas las columnas que el modelo espera.\n\n"
+                    "Faltan estas columnas:\n- " + "\n- ".join(missing)
+                )
+                st.stop()
 
-    st.sidebar.header("Parametros de entrada")
-
-    # Definición de entradas de ejemplo. Ajusta estas variables acorde a
-    # las características utilizadas en tu modelo.
-    consumo_12m = st.sidebar.number_input(
-        "Consumo promedio últimos 12 meses", min_value=0.0, step=1.0, value=100.0
-    )
-    consumo_24m = st.sidebar.number_input(
-        "Consumo promedio últimos 24 meses", min_value=0.0, step=1.0, value=120.0
-    )
-    consumo_36m = st.sidebar.number_input(
-        "Consumo promedio últimos 36 meses", min_value=0.0, step=1.0, value=130.0
-    )
-    segmento = st.sidebar.selectbox(
-        "Segmento", ["Residencial", "Pyme", "Corporativo"], index=0
-    )
-
-    if st.sidebar.button("Predecir"):
-        # Construye diccionario con los datos introducidos
-        raw_data = {
-            "consumo_12m": consumo_12m,
-            "consumo_24m": consumo_24m,
-            "consumo_36m": consumo_36m,
-            "segmento": segmento,
-            # Añade aquí cualquier otra variable necesaria
-        }
-
-        # Preprocesamiento
-        X = preprocess_input(raw_data)
-
-        # Predicción
-        pred = model.predict(X)[0]
-        proba = (
-            model.predict_proba(X)[0][1] if hasattr(model, "predict_proba") else None
-        )
-
-        st.subheader("Resultado de la predicción")
-        if pred == 1:
-            st.success("✅ El modelo predice: Caída / Evento positivo (clase 1)")
+            X = df[list(feature_cols)].copy()
         else:
-            st.info("ℹ️ El modelo predice: Sin caída / Negativo (clase 0)")
+            X = df.copy()
 
-        if proba is not None:
-            st.write(f"Probabilidad de clase 1: **{proba:.2%}**")
+        # Predicciones
+        preds = model.predict(X)
 
-        # Mostrar los datos procesados para depuración
-        st.write("\n**Datos procesados:**")
-        st.dataframe(X)
+        if hasattr(model, "predict_proba"):
+            probas = model.predict_proba(X)[:, 1]
+        else:
+            probas = None
 
+        # Resultado final
+        result = df.copy()
+        result["prediccion"] = preds
 
-if __name__ == "__main__":
-    main()
+        if probas is not None:
+            result["probabilidad_clase_1"] = probas
+
+        st.success("✅ Predicciones generadas correctamente.")
+        
+        st.subheader("📊 Resultados")
+        st.dataframe(result.head())
+
+        # =========================================
+        # 5. Métricas rápidas
+        # =========================================
+        st.subheader("🔢 Resumen de predicciones")
+
+        total = len(result)
+        n_pos = (result["prediccion"] == 1).sum()
+        n_neg = (result["prediccion"] == 0).sum()
+        pct_pos = n_pos / total * 100 if total > 0 else 0
+        pct_neg = n_neg / total * 100 if total > 0 else 0
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total registros", total)
+        col2.metric("Predicciones clase 1", n_pos, f"{pct_pos:.1f}%")
+        col3.metric("Predicciones clase 0", n_neg, f"{pct_neg:.1f}%")
+
+        # =========================================
+        # 6. Distribución de clases (gráfico)
+        # =========================================
+        st.subheader("📉 Distribución de clases")
+        st.bar_chart(result["prediccion"].value_counts())
+
+        # =========================================
+        # 7. Análisis por segmento (si existe)
+        # =========================================
+        if "segmento" in result.columns:
+            st.subheader("🏷️ Porcentaje de clase 1 por segmento")
+            seg_stats = (
+                result.groupby("segmento")["prediccion"]
+                .mean()
+                .sort_values(ascending=False) * 100
+            )
+            st.bar_chart(seg_stats)
+
+        # =========================================
+        # 8. Top casos más probables
+        # =========================================
+        if "probabilidad_clase_1" in result.columns:
+            st.subheader("🔥 Top 20 casos con mayor probabilidad")
+            top_20 = result.sort_values("probabilidad_clase_1", ascending=False).head(20)
+            st.dataframe(top_20)
+
+        # =========================================
+        # 9. Descargar CSV final
+        # =========================================
+        csv_bytes = result.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Descargar CSV con predicciones",
+            data=csv_bytes,
+            file_name="predicciones_modelo_pi.csv",
+            mime="text/csv",
+        )
