@@ -13,7 +13,50 @@ def load_model():
 model = load_model()
 
 # =========================================
-# 2. Configuración general
+# 2. Función robusta para leer archivos
+# =========================================
+def load_input_file(uploaded_file) -> pd.DataFrame:
+    """
+    Lee un archivo subido (CSV o XLSX) de forma robusta:
+    - Detecta la extensión.
+    - Para CSV, prueba varios encodings y separadores.
+    """
+
+    filename = uploaded_file.name.lower()
+
+    if filename.endswith(".xlsx") or filename.endswith(".xls"):
+        # Archivo Excel
+        return pd.read_excel(uploaded_file)
+
+    # Asumimos CSV si no es Excel
+    # Intento 1: CSV estándar utf-8 y coma
+    try:
+        uploaded_file.seek(0)
+        return pd.read_csv(uploaded_file)
+    except Exception:
+        pass
+
+    # Intento 2: CSV encoding latino (muy común en archivos de Windows)
+    try:
+        uploaded_file.seek(0)
+        return pd.read_csv(uploaded_file, encoding="latin-1")
+    except Exception:
+        pass
+
+    # Intento 3: CSV con ; como separador (típico de CSV en español)
+    try:
+        uploaded_file.seek(0)
+        return pd.read_csv(uploaded_file, sep=";", encoding="latin-1")
+    except Exception as e:
+        st.error(
+            "❌ No se pudo leer el archivo.\n\n"
+            "Prueba guardarlo nuevamente como CSV UTF-8 desde Excel o subir un XLSX.\n\n"
+            f"Detalle técnico: {e}"
+        )
+        st.stop()
+
+# =========================================
+# 3. Configuración general
 # =========================================
 st.set_page_config(page_title="Despliegue del Modelo PI", layout="wide")
 
@@ -29,27 +72,24 @@ st.markdown(
 )
 
 # =========================================
-# 3. Cargar archivo
+# 4. Cargar archivo
 # =========================================
 file = st.file_uploader("Sube un archivo CSV o Excel", type=["csv", "xlsx"])
 
 if file is not None:
 
-    # Detectar si es CSV o Excel
-    if file.name.lower().endswith(".csv"):
-        df = pd.read_csv(file)
-    else:
-        df = pd.read_excel(file)
+    # Usamos la función robusta
+    df = load_input_file(file)
 
     st.subheader("📄 Vista previa del archivo input")
     st.dataframe(df.head())
     st.write(f"Filas: **{df.shape[0]}**, Columnas: **{df.shape[1]}**")
 
     # =========================================
-    # 4. Aplicar modelo
+    # 5. Aplicar modelo
     # =========================================
     if st.button("Ejecutar despliegue del modelo"):
-        
+
         # Si el modelo guarda el listado de features, validamos
         feature_cols = getattr(model, "feature_names_in_", None)
 
@@ -87,7 +127,7 @@ if file is not None:
         st.dataframe(result.head())
 
         # =========================================
-        # 5. Métricas rápidas
+        # 6. Métricas rápidas
         # =========================================
         st.subheader("📌 Resumen del despliegue")
 
@@ -103,13 +143,13 @@ if file is not None:
         col3.metric("Casos clasificados como 0", n_neg, f"{pct_neg:.1f}%")
 
         # =========================================
-        # 6. Distribución de clases (gráfico)
+        # 7. Distribución de clases (gráfico)
         # =========================================
         st.subheader("📉 Distribución de clases")
         st.bar_chart(result["prediccion"].value_counts())
 
         # =========================================
-        # 7. Análisis por segmento (si existe)
+        # 8. Análisis por segmento (si existe)
         # =========================================
         if "segmento" in result.columns:
             st.subheader("🏷️ Distribución por segmento — Clase 1 (%)")
@@ -121,7 +161,7 @@ if file is not None:
             st.bar_chart(seg_stats)
 
         # =========================================
-        # 8. Top casos más probables
+        # 9. Top casos más probables
         # =========================================
         if "probabilidad_clase_1" in result.columns:
             st.subheader("🔥 Top 20 casos con mayor probabilidad")
@@ -129,7 +169,7 @@ if file is not None:
             st.dataframe(top_20)
 
         # =========================================
-        # 9. Descargar CSV final
+        # 10. Descargar CSV final
         # =========================================
         csv_bytes = result.to_csv(index=False).encode("utf-8")
         st.download_button(
