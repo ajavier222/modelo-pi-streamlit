@@ -17,11 +17,6 @@ model = load_model()
 # 2. Función robusta para leer archivos
 # =========================================
 def load_input_file(uploaded_file) -> pd.DataFrame:
-    """
-    Lee un archivo subido (CSV o XLSX) de forma robusta:
-    - Detecta extensión.
-    - Para CSV, prueba distintos encodings y separadores.
-    """
     filename = uploaded_file.name.lower()
 
     # Excel
@@ -107,6 +102,14 @@ if file is not None:
         if probas is not None:
             result["probabilidad_clase_1"] = probas
 
+        # =========================================
+        # 🔥 AGREGAR COLUMNA DE ETIQUETA (0=Normal, 1=Fraude)
+        # =========================================
+        result["etiqueta_prediccion"] = result["prediccion"].map({
+            0: "Normal",
+            1: "Fraude"
+        })
+
         st.success("✅ Modelo ejecutado correctamente.")
 
         # =========================================
@@ -157,7 +160,7 @@ if file is not None:
             st.bar_chart(seg_stats)
 
         # =========================================
-        # 10. Top 20 de los casos con una predicción más acertada
+        # 10. Top 20 de los casos con mayor probabilidad de fraude
         # =========================================
         if "probabilidad_clase_1" in result.columns:
             st.subheader("🔥 Top 20 de los casos con una predicción más acertada")
@@ -165,7 +168,7 @@ if file is not None:
             st.dataframe(top20)
 
         # =========================================
-        # 11. Descargar resultados SIEMPRE en Excel (.xlsx)
+        # 11. Descargar resultados en Excel (.xlsx)
         # =========================================
         st.subheader("📥 Descargar resultados")
 
