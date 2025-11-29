@@ -122,6 +122,3 @@ Siga estos pasos para reproducir el flujo completo:
 
 ---
 
-## 📫 Contacto
-
-Si detecta problemas, desea proponer mejoras o contribuir al proyecto, no dude en crear un *Issue* o enviar un *Pull Request*. ¡Gracias por su interés!
